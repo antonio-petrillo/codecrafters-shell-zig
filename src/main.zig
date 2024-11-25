@@ -8,14 +8,17 @@ const ParseError = error{
 
 const Command = enum {
     exit, // built-in exit cmd
+    echo,
 };
 
-const RunCommand = union(enum) {
+const RunCommand = union(Command) {
     exit: u8, // exit code, default to 0
+    echo: []const u8,
 
     // see: https://github.com/ziglang/zig/blob/master/lib/std/zig/tokenizer.zig
     const available_commands = std.StaticStringMap(Command).initComptime(.{
         .{ "exit", .exit },
+        .{ "echo", .echo },
     });
 
     pub fn parse(src: []const u8) ParseError!RunCommand {
@@ -34,6 +37,15 @@ const RunCommand = union(enum) {
                 const exit_value = std.fmt.parseInt(u8, exit_num_code, 10) catch return ParseError.FailedParseArgs;
 
                 return RunCommand{ .exit = exit_value };
+            },
+            .echo => {
+                const first = token_iter.next() orelse return RunCommand{ .echo = "" };
+                const start = token_iter.index - first.len;
+                while (token_iter.peek() != null) : (_ = token_iter.next()) {}
+                const end = token_iter.index;
+                return RunCommand{
+                    .echo = src[start..end],
+                };
             },
         };
     }
@@ -69,6 +81,9 @@ fn repl() !void {
         switch (cmd) {
             .exit => |exit_value| {
                 std.posix.exit(exit_value);
+            },
+            .echo => |str| {
+                try stdout.print("{s}\n", .{str});
             },
         }
     }
