@@ -126,7 +126,7 @@ fn repl(allocator: Allocator) !void {
         try stdout.print(prompt, .{});
 
         // The 'R' in 'REPL'
-        const user_input = try stdin.readUntilDelimiter(&buffer, '\n');
+        const user_input = stdin.readUntilDelimiter(&buffer, '\n') catch return;
 
         // (Handle Error) The 'E' in 'REPL'
         const cmd = RunCommand.parse(arena.allocator(), user_input) catch |err| switch (err) {

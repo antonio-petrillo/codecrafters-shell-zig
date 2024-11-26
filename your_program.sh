@@ -14,6 +14,8 @@ set -e # Exit early if any commands fail
 # - Edit .codecrafters/compile.sh to change how your program compiles remotely
 (
   cd "$(dirname "$0")" # Ensure compile steps are run within the repository directory
+  # ~/Code/Source/Zig/zig-0.13/zig version
+  # ~/Code/Source/Zig/zig-0.13/zig build
   zig build
 )
 
