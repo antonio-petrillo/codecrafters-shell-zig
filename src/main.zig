@@ -243,8 +243,15 @@ fn repl(allocator: Allocator) !void {
                         try stdout.print("{s}\n", .{cur_dir});
                     },
                     .cd => |path| {
-                        // try stdout.print("CD to {s}\n", .{path});
-                        posix.chdir(path) catch |err| switch (err) {
+                        var target: []const u8 = undefined;
+                        if (path[0] == '~') {
+                            const home = posix.getenv("HOME") orelse "~";
+                            target = fs.path.join(allocator, &.{ home, path[1..] }) catch "~";
+                        } else {
+                            target = path;
+                        }
+
+                        posix.chdir(target) catch |err| switch (err) {
                             error.FileNotFound => {
                                 try stdout.print("cd: {s}: No such file or directory\n", .{path});
                             },
