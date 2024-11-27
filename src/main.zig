@@ -18,12 +18,14 @@ const Builtin = enum {
     echo,
     type_,
     pwd,
+    cd,
 
     const builtins = std.StaticStringMap(Builtin).initComptime(.{
         .{ "exit", .exit },
         .{ "echo", .echo },
         .{ "type", .type_ },
         .{ "pwd", .pwd },
+        .{ "cd", .cd },
     });
 
     pub fn isBuiltin(s: []const u8) bool {
@@ -47,6 +49,7 @@ const Command = struct {
             echo: []const u8,
             type_: *Command,
             pwd: void,
+            cd: []const u8,
         },
         extern_: External,
         not_found: void,
@@ -125,6 +128,10 @@ const Command = struct {
                     return ParseError.TooManyArgs;
                 }
                 cmdPtr.* = Command{ .kind = .{ .builtin = .pwd }, .name = name };
+                return cmdPtr;
+            },
+            .cd => {
+                cmdPtr.* = Command{ .kind = .{ .builtin = .{ .cd = token_iter.rest() } }, .name = name };
                 return cmdPtr;
             },
         };
@@ -234,6 +241,20 @@ fn repl(allocator: Allocator) !void {
                     .pwd => {
                         const cur_dir = try fs.cwd().realpathAlloc(allocator, ".");
                         try stdout.print("{s}\n", .{cur_dir});
+                    },
+                    .cd => |path| {
+                        // try stdout.print("CD to {s}\n", .{path});
+                        posix.chdir(path) catch |err| switch (err) {
+                            error.FileNotFound => {
+                                try stdout.print("cd: {s}: No such file or directory\n", .{path});
+                            },
+                            error.NotDir => {
+                                try stdout.print("{s}: not a dir\n", .{path});
+                            },
+                            else => {
+                                try stdout.print("Something went wrong!", .{});
+                            },
+                        };
                     },
                 }
             },
