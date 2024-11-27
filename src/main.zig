@@ -1,6 +1,7 @@
 const std = @import("std");
 const posix = std.posix;
 const fs = std.fs;
+const process = std.process;
 const Allocator = std.mem.Allocator;
 
 const ParseError = error{
@@ -15,7 +16,7 @@ const ParseError = error{
 const Builtin = enum {
     exit,
     echo,
-    type_, // this may raise problems
+    type_,
 
     const builtins = std.StaticStringMap(Builtin).initComptime(.{
         .{ "exit", .exit },
@@ -34,7 +35,7 @@ const Builtin = enum {
 
 const External = struct {
     path: []const u8,
-    args: ?[][]const u8,
+    args: []const []const u8,
 };
 
 const Command = struct {
@@ -42,7 +43,7 @@ const Command = struct {
         builtin: union(Builtin) {
             exit: u8,
             echo: []const u8,
-            type_: ?*Command,
+            type_: *Command,
         },
         extern_: External,
         not_found: void,
@@ -106,7 +107,7 @@ const Command = struct {
 
                 if (std.mem.eql(u8, target, "type")) {
                     cmdPtr.* = Command{ .kind = .{ .builtin = .{
-                        .type_ = null,
+                        .type_ = cmdPtr,
                     } }, .name = name };
 
                     return cmdPtr;
@@ -125,13 +126,13 @@ const Command = struct {
 
         const path_env = posix.getenv("PATH") orelse {
             cmdPtr.* = Command{ .kind = .not_found, .name = cmd };
-            // return Command{ .not_found = void, .name = cmd };
             return cmdPtr;
         };
         var path_iter = std.mem.tokenizeSequence(u8, path_env, ":");
 
         // unuesed for now
-        _ = token_iter;
+        var args = std.ArrayList([]const u8).init(allocator);
+        args.append(cmd) catch return ParseError.Failed;
 
         while (path_iter.peek() != null) {
             const path = path_iter.next().?;
@@ -140,10 +141,15 @@ const Command = struct {
             const file = std.fs.openFileAbsolute(file_path, .{}) catch continue;
             defer file.close();
 
-            const mode = file.mode() catch continue; // 0o777 -> rwxrwxrwx -> 0b111 111 111 -> 0x1 1111 1111 -> 0x100100100
-            // if (mode & 0b00000000000000000000000100100100 != 0) {
-            if (mode & 0x124 != 0) {
-                cmdPtr.* = Command{ .kind = .{ .extern_ = .{ .path = file_path, .args = null } }, .name = cmd };
+            const mode = file.mode() catch continue;
+            // 0o777 -> rwxrwxrwx -> 0b111 111 111 -> 0x1 1111 1111 -> 0x100100100 -> 0x124
+            if (mode & 0x124 != 0) { // if it is any type of executable
+                while (token_iter.peek() != null) {
+                    // const arg = allocator.dupeZ(u8, token_iter.next().?) catch return ParseError.Failed;
+                    args.append(token_iter.next().?) catch return ParseError.Failed;
+                }
+                const externalArgs = args.toOwnedSlice() catch return ParseError.Failed;
+                cmdPtr.* = Command{ .kind = .{ .extern_ = .{ .path = file_path, .args = externalArgs } }, .name = cmd };
                 return cmdPtr;
             }
             allocator.free(file_path);
@@ -202,11 +208,7 @@ fn repl(allocator: Allocator) !void {
                     .echo => |str| {
                         try stdout.print("{s}\n", .{str});
                     },
-                    .type_ => |maybe_arg| {
-                        const arg = maybe_arg orelse {
-                            try stdout.print("type is a shell builtin\n", .{});
-                            continue;
-                        };
+                    .type_ => |arg| {
                         switch (arg.kind) {
                             .builtin => {
                                 try stdout.print("{s} is a shell builtin\n", .{arg.name});
@@ -221,8 +223,20 @@ fn repl(allocator: Allocator) !void {
                     },
                 }
             },
-            .extern_ => {
-                continue; // nothing for now
+            .extern_ => |exe| {
+                var child = process.Child.init(exe.args, allocator);
+                child.spawn() catch continue;
+                const term = child.wait() catch continue;
+                switch (term) {
+                    .Exited => |code| {
+                        if (code != 0) {
+                            try stdout.print("{s}: exited abnormally\n", .{cmd.name});
+                        }
+                    },
+                    else => {
+                        try stdout.print("{s}: exited abnormally\n", .{cmd.name});
+                    },
+                }
             },
             .not_found => {
                 try stdout.print("{s}: not found\n", .{cmd.name});
