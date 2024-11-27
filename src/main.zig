@@ -17,11 +17,13 @@ const Builtin = enum {
     exit,
     echo,
     type_,
+    pwd,
 
     const builtins = std.StaticStringMap(Builtin).initComptime(.{
         .{ "exit", .exit },
         .{ "echo", .echo },
         .{ "type", .type_ },
+        .{ "pwd", .pwd },
     });
 
     pub fn isBuiltin(s: []const u8) bool {
@@ -44,6 +46,7 @@ const Command = struct {
             exit: u8,
             echo: []const u8,
             type_: *Command,
+            pwd: void,
         },
         extern_: External,
         not_found: void,
@@ -115,6 +118,13 @@ const Command = struct {
 
                 const targetCmd = try Command.parse(allocator, target);
                 cmdPtr.* = Command{ .kind = .{ .builtin = .{ .type_ = targetCmd } }, .name = name };
+                return cmdPtr;
+            },
+            .pwd => {
+                if (token_iter.peek() != null) {
+                    return ParseError.TooManyArgs;
+                }
+                cmdPtr.* = Command{ .kind = .{ .builtin = .pwd }, .name = name };
                 return cmdPtr;
             },
         };
@@ -220,6 +230,10 @@ fn repl(allocator: Allocator) !void {
                                 try stdout.print("{s}: not found\n", .{arg.name});
                             },
                         }
+                    },
+                    .pwd => {
+                        const cur_dir = try fs.cwd().realpathAlloc(allocator, ".");
+                        try stdout.print("{s}\n", .{cur_dir});
                     },
                 }
             },
